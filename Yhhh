@@ -1,0 +1,1086 @@
+--[[ Ultimate Menu v2 — version corrigée
+     Bugs fixés : tab overflow, LayoutOrder, scoping, code mort
+]]
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+print("[Ultimate] Démarrage...")
+
+local Players    = game:GetService("Players")
+local UIS        = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Lighting   = game:GetService("Lighting")
+local Teleport   = game:GetService("TeleportService")
+local StarterGui = game:GetService("StarterGui")
+
+local player = Players.LocalPlayer
+local pg = player:WaitForChild("PlayerGui")
+print("[Ultimate] PlayerGui OK")
+
+--========================= HELPERS =========================--
+local function notify(text, dur)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "Ultimate",
+            Text = tostring(text),
+            Duration = dur or 3,
+        })
+    end)
+end
+
+local function copy(text)
+    local ok = pcall(function()
+        if setclipboard then setclipboard(text)
+        elseif toclipboard then toclipboard(text)
+        elseif syn and syn.write_clipboard then syn.write_clipboard(text)
+        else error("no clipboard") end
+    end)
+    if not ok then
+        warn("[Ultimate] Clipboard indisponible :\n" .. text)
+        return false
+    end
+    return true
+end
+
+--========================= GUI =========================--
+local parentGui = (type(gethui) == "function" and gethui()) or pg
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "UltimateMenu"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = parentGui
+
+local frame = Instance.new("Frame")
+frame.AnchorPoint = Vector2.new(0.5, 0)
+frame.Position = UDim2.new(0.5, 0, 0, 30)
+frame.Size = UDim2.new(0, 620, 0, 520)
+frame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.ClipsDescendants = true
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+local fs = Instance.new("UIStroke", frame)
+fs.Color = Color3.fromRGB(120, 80, 220)
+fs.Thickness = 2
+
+-- Titre
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 36)
+titleBar.BackgroundColor3 = Color3.fromRGB(30, 26, 42)
+titleBar.BorderSizePixel = 0
+titleBar.Active = true
+titleBar.Parent = frame
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -50, 1, 0)
+title.Position = UDim2.new(0, 12, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "⚡ Ultimate Menu"
+title.TextColor3 = Color3.fromRGB(220, 200, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 15
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = titleBar
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 28, 0, 24)
+closeBtn.Position = UDim2.new(1, -36, 0.5, -12)
+closeBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 13
+closeBtn.Parent = titleBar
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+closeBtn.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+-- Barre d'onglets (scrollable pour éviter l'overflow)
+local tabBarHolder = Instance.new("Frame")
+tabBarHolder.Position = UDim2.new(0, 0, 0, 36)
+tabBarHolder.Size = UDim2.new(1, 0, 0, 32)
+tabBarHolder.BackgroundColor3 = Color3.fromRGB(25, 22, 34)
+tabBarHolder.BorderSizePixel = 0
+tabBarHolder.Parent = frame
+
+local tabScroll = Instance.new("ScrollingFrame")
+tabScroll.Size = UDim2.new(1, 0, 1, 0)
+tabScroll.BackgroundTransparency = 1
+tabScroll.BorderSizePixel = 0
+tabScroll.ScrollBarThickness = 2
+tabScroll.ScrollBarImageColor3 = Color3.fromRGB(120, 80, 220)
+tabScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+tabScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+tabScroll.ScrollingDirection = Enum.ScrollingDirection.X
+tabScroll.Parent = tabBarHolder
+
+local tabList = Instance.new("UIListLayout")
+tabList.FillDirection = Enum.FillDirection.Horizontal
+tabList.Padding = UDim.new(0, 4)
+tabList.VerticalAlignment = Enum.VerticalAlignment.Center
+tabList.HorizontalAlignment = Enum.HorizontalAlignment.Left
+tabList.SortOrder = Enum.SortOrder.LayoutOrder
+tabList.Parent = tabScroll
+
+local tabPad = Instance.new("UIPadding")
+tabPad.PaddingLeft = UDim.new(0, 6)
+tabPad.PaddingRight = UDim.new(0, 6)
+tabPad.Parent = tabScroll
+
+-- Pages
+local pagesHolder = Instance.new("Frame")
+pagesHolder.Position = UDim2.new(0, 0, 0, 68)
+pagesHolder.Size = UDim2.new(1, 0, 1, -68)
+pagesHolder.BackgroundTransparency = 1
+pagesHolder.Parent = frame
+
+local pages = {}
+local tabOrder = 0
+
+local function makePage(name)
+    local p = Instance.new("ScrollingFrame")
+    p.Name = name
+    p.Size = UDim2.new(1, 0, 1, 0)
+    p.BackgroundTransparency = 1
+    p.BorderSizePixel = 0
+    p.ScrollBarThickness = 5
+    p.ScrollBarImageColor3 = Color3.fromRGB(120, 80, 220)
+    p.CanvasSize = UDim2.new(0, 0, 0, 0)
+    p.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    p.Visible = false
+    p.Parent = pagesHolder
+
+    local l = Instance.new("UIListLayout")
+    l.Padding = UDim.new(0, 6)
+    l.SortOrder = Enum.SortOrder.LayoutOrder
+    l.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    l.Parent = p
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop = UDim.new(0, 8)
+    pad.PaddingBottom = UDim.new(0, 8)
+    pad.PaddingLeft = UDim.new(0, 6)
+    pad.PaddingRight = UDim.new(0, 6)
+    pad.Parent = p
+
+    pages[name] = p
+    return p
+end
+
+local function makeTabBtn(name)
+    tabOrder = tabOrder + 1
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, 78, 0, 24)
+    b.LayoutOrder = tabOrder
+    b.BackgroundColor3 = Color3.fromRGB(50, 45, 65)
+    b.Text = name
+    b.TextColor3 = Color3.fromRGB(220, 210, 240)
+    b.Font = Enum.Font.GothamMedium
+    b.TextSize = 11
+    b.Parent = tabScroll
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+
+    b.MouseButton1Click:Connect(function()
+        for n, p in pairs(pages) do p.Visible = (n == name) end
+        for _, c in ipairs(tabScroll:GetChildren()) do
+            if c:IsA("TextButton") then
+                c.BackgroundColor3 = (c == b)
+                    and Color3.fromRGB(120, 80, 220)
+                    or Color3.fromRGB(50, 45, 65)
+            end
+        end
+    end)
+    return b
+end
+
+--========================= WIDGETS =========================--
+local widgetOrder = {}
+
+local function nextOrder(page)
+    widgetOrder[page] = (widgetOrder[page] or 0) + 1
+    return widgetOrder[page]
+end
+
+local function wLabel(parent, text, color)
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(0.95, 0, 0, 20)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextColor3 = color or Color3.fromRGB(140, 100, 255)
+    l.Font = Enum.Font.GothamBold
+    l.TextSize = 13
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.LayoutOrder = nextOrder(parent)
+    l.Parent = parent
+    return l
+end
+
+local function wBtn(parent, label, cb)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0.95, 0, 0, 32)
+    b.BackgroundColor3 = Color3.fromRGB(60, 55, 80)
+    b.Text = label
+    b.TextColor3 = Color3.fromRGB(240, 235, 255)
+    b.Font = Enum.Font.GothamMedium
+    b.TextSize = 13
+    b.LayoutOrder = nextOrder(parent)
+    b.Parent = parent
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    b.MouseButton1Click:Connect(function()
+        local ok, err = pcall(cb)
+        if not ok then
+            warn("[Ultimate] " .. label .. " : " .. tostring(err))
+            notify("Erreur : " .. tostring(err))
+        end
+    end)
+    return b
+end
+
+local function wToggle(parent, label, initial, cb)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0.95, 0, 0, 32)
+    b.BackgroundColor3 = initial and Color3.fromRGB(60, 160, 90)
+        or Color3.fromRGB(45, 42, 55)
+    b.Text = label .. " : " .. (initial and "ON" or "OFF")
+    b.TextColor3 = Color3.fromRGB(240, 235, 255)
+    b.Font = Enum.Font.GothamMedium
+    b.TextSize = 13
+    b.LayoutOrder = nextOrder(parent)
+    b.Parent = parent
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+
+    local state = initial
+    b.MouseButton1Click:Connect(function()
+        state = not state
+        b.Text = label .. " : " .. (state and "ON" or "OFF")
+        b.BackgroundColor3 = state and Color3.fromRGB(60, 160, 90)
+            or Color3.fromRGB(45, 42, 55)
+        local ok, err = pcall(cb, state)
+        if not ok then warn("[Ultimate] toggle " .. label .. " : " .. tostring(err)) end
+    end)
+    return b
+end
+
+local function wInput(parent, label, placeholder, onEnter)
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(0.95, 0, 0, 48)
+    holder.BackgroundTransparency = 1
+    holder.LayoutOrder = nextOrder(parent)
+    holder.Parent = parent
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 16)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(200, 195, 220)
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.TextSize = 12
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = holder
+
+    local box = Instance.new("TextBox")
+    box.Position = UDim2.new(0, 0, 0, 22)
+    box.Size = UDim2.new(1, 0, 0, 24)
+    box.BackgroundColor3 = Color3.fromRGB(32, 30, 42)
+    box.BorderSizePixel = 0
+    box.PlaceholderText = placeholder or ""
+    box.Text = ""
+    box.TextColor3 = Color3.fromRGB(230, 225, 245)
+    box.PlaceholderColor3 = Color3.fromRGB(120, 115, 140)
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 13
+    box.TextXAlignment = Enum.TextXAlignment.Left
+    box.ClearTextOnFocus = false
+    box.Parent = holder
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+    local p = Instance.new("UIPadding", box)
+    p.PaddingLeft = UDim.new(0, 8)
+
+    box.FocusLost:Connect(function(enter)
+        if enter and onEnter then
+            local ok, err = pcall(onEnter, box.Text)
+            if not ok then warn("[Ultimate] input : " .. tostring(err)) end
+        end
+    end)
+    return box
+end
+
+local function wSlider(parent, label, minV, maxV, initial, onChange)
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(0.95, 0, 0, 52)
+    holder.BackgroundTransparency = 1
+    holder.LayoutOrder = nextOrder(parent)
+    holder.Parent = parent
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 18)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label .. " : " .. initial
+    lbl.TextColor3 = Color3.fromRGB(210, 200, 230)
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.TextSize = 12
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = holder
+
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(1, 0, 0, 10)
+    bg.Position = UDim2.new(0, 0, 0, 30)
+    bg.BackgroundColor3 = Color3.fromRGB(45, 42, 55)
+    bg.BorderSizePixel = 0
+    bg.Parent = holder
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(120, 80, 220)
+    fill.BorderSizePixel = 0
+    fill.Parent = bg
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local knob = Instance.new("Frame")
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.Position = UDim2.new(0, 0, 0.5, 0)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 2
+    knob.Parent = bg
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local function refresh(v)
+        local rel = math.clamp((v - minV) / (maxV - minV), 0, 1)
+        fill.Size = UDim2.new(rel, 0, 1, 0)
+        knob.Position = UDim2.new(rel, 0, 0.5, 0)
+        lbl.Text = label .. " : " .. v
+    end
+
+    local function setFromX(x)
+        local rel = math.clamp((x - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+        local v = math.floor(minV + (maxV - minV) * rel + 0.5)
+        refresh(v)
+        if onChange then
+            local ok, err = pcall(onChange, v)
+            if not ok then warn("[Ultimate] slider " .. label .. " : " .. tostring(err)) end
+        end
+    end
+
+    local dragging = false
+    bg.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; setFromX(i.Position.X)
+        end
+    end)
+    UIS.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement
+        or i.UserInputType == Enum.UserInputType.Touch) then
+            setFromX(i.Position.X)
+        end
+    end)
+    UIS.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    refresh(initial)
+    return { Set = refresh }
+end
+print("[Ultimate] Widgets prêts")
+
+--========================= PAGE TOOLS =========================--
+local Tools = makePage("Tools")
+
+local humanoid, hrp
+local function bindChar(c)
+    humanoid = c:WaitForChild("Humanoid")
+    hrp = c:WaitForChild("HumanoidRootPart")
+end
+if player.Character then bindChar(player.Character) end
+player.CharacterAdded:Connect(bindChar)
+
+wLabel(Tools, "── Vitesse & Saut ──")
+wSlider(Tools, "Vitesse", 8, 300, 16, function(v)
+    if humanoid then humanoid.WalkSpeed = v end
+end)
+wSlider(Tools, "Saut", 50, 500, 50, function(v)
+    if humanoid then humanoid.UseJumpPower = true; humanoid.JumpPower = v end
+end)
+wSlider(Tools, "Gravité", 0, 300, 196, function(v)
+    workspace.Gravity = v
+end)
+wSlider(Tools, "FOV", 40, 120, 70, function(v)
+    workspace.CurrentCamera.FieldOfView = v
+end)
+
+wLabel(Tools, "── Effets ──")
+local fbSaved
+wToggle(Tools, "Fullbright", false, function(v)
+    if v then
+        fbSaved = {
+            Brightness = Lighting.Brightness,
+            ClockTime = Lighting.ClockTime,
+            Ambient = Lighting.Ambient,
+            OutdoorAmbient = Lighting.OutdoorAmbient,
+        }
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.Ambient = Color3.fromRGB(200,200,200)
+        Lighting.OutdoorAmbient = Color3.fromRGB(200,200,200)
+    elseif fbSaved then
+        for k, val in pairs(fbSaved) do
+            pcall(function() Lighting[k] = val end)
+        end
+    end
+end)
+
+local fpsCache = {}
+wToggle(Tools, "FPS Booster", false, function(v)
+    if v then
+        for _, d in ipairs(game:GetDescendants()) do
+            if d:IsA("BasePart") then
+                fpsCache[d] = {"Material", d.Material}
+                d.Material = Enum.Material.SmoothPlastic
+            elseif d:IsA("ParticleEmitter") or d:IsA("Trail")
+                or d:IsA("Smoke") or d:IsA("Fire") or d:IsA("Sparkles") then
+                fpsCache[d] = {"Enabled", d.Enabled}
+                d.Enabled = false
+            end
+        end
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 100000
+    else
+        for obj, data in pairs(fpsCache) do
+            if obj and obj.Parent then
+                pcall(function() obj[data[1]] = data[2] end)
+            end
+        end
+        fpsCache = {}
+    end
+end)
+
+wLabel(Tools, "── Mouvement ──")
+local infJumpConn
+wToggle(Tools, "Infinite Jump", false, function(v)
+    if v then
+        infJumpConn = UIS.JumpRequest:Connect(function()
+            if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end
+        end)
+    else
+        if infJumpConn then infJumpConn:Disconnect(); infJumpConn = nil end
+    end
+end)
+
+local noclipOn = false
+RunService.Stepped:Connect(function()
+    if not noclipOn then return end
+    local char = player.Character
+    if not char then return end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+    end
+end)
+wToggle(Tools, "Noclip", false, function(v)
+    noclipOn = v
+end)
+
+wLabel(Tools, "── Actions ──")
+wBtn(Tools, "Rejoin serveur", function()
+    Teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
+end)
+wBtn(Tools, "Reset personnage", function()
+    if humanoid then humanoid.Health = 0 end
+end)
+print("[Ultimate] Page Tools OK")
+
+--========================= PAGE DEX =========================--
+local DexPage = makePage("Dex")
+wLabel(DexPage, "── Dex Explorer ──")
+wLabel(DexPage, "Charge Dex (explorateur d'instances)", Color3.fromRGB(180, 160, 220))
+
+local dexLoaded = false
+wBtn(DexPage, "Charger Dex Explorer", function()
+    if dexLoaded then notify("Dex déjà chargé") return end
+    local ok, err = pcall(function()
+        loadstring(game:HttpGet(
+            "https://raw.githubusercontent.com/LorekeeperZinnia/Dex/main/main.lua"
+        ))()
+    end)
+    if ok then
+        dexLoaded = true
+        notify("Dex Explorer chargé ✅")
+    else
+        notify("Erreur Dex : " .. tostring(err))
+        warn(err)
+    end
+end)
+wLabel(DexPage, "Dex permet de :", Color3.fromRGB(180, 160, 220))
+wLabel(DexPage, "• Voir toutes les instances", Color3.fromRGB(180,180,200))
+wLabel(DexPage, "• Modifier les propriétés", Color3.fromRGB(180,180,200))
+wLabel(DexPage, "• Chercher par nom/classe", Color3.fromRGB(180,180,200))
+print("[Ultimate] Page Dex OK")
+
+--========================= PAGE SPY =========================--
+local SpyPage = makePage("Spy")
+wLabel(SpyPage, "── Remote Spy ──")
+
+local spyStatus = Instance.new("TextLabel")
+spyStatus.Size = UDim2.new(0.95, 0, 0, 22)
+spyStatus.BackgroundTransparency = 1
+spyStatus.Text = "État : initialisation..."
+spyStatus.TextColor3 = Color3.fromRGB(150, 200, 150)
+spyStatus.Font = Enum.Font.Code
+spyStatus.TextSize = 12
+spyStatus.TextXAlignment = Enum.TextXAlignment.Left
+spyStatus.LayoutOrder = nextOrder(SpyPage)
+spyStatus.Parent = SpyPage
+
+local logsHolder = Instance.new("Frame")
+logsHolder.Size = UDim2.new(0.95, 0, 0, 260)
+logsHolder.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+logsHolder.BorderSizePixel = 0
+logsHolder.LayoutOrder = nextOrder(SpyPage)
+logsHolder.Parent = SpyPage
+Instance.new("UICorner", logsHolder).CornerRadius = UDim.new(0, 6)
+
+local logScroll = Instance.new("ScrollingFrame")
+logScroll.Size = UDim2.new(1, -8, 1, -8)
+logScroll.Position = UDim2.new(0, 4, 0, 4)
+logScroll.BackgroundTransparency = 1
+logScroll.BorderSizePixel = 0
+logScroll.ScrollBarThickness = 5
+logScroll.ScrollBarImageColor3 = Color3.fromRGB(120, 80, 220)
+logScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+logScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+logScroll.Parent = logsHolder
+
+local logList = Instance.new("UIListLayout")
+logList.Padding = UDim.new(0, 2)
+logList.Parent = logScroll
+
+local logCount = 0
+
+local function serialize(v, depth)
+    depth = depth or 0
+    if depth > 3 then return "..." end
+    local t = typeof(v)
+    if t == "string" then
+        if #v > 80 then v = v:sub(1,80).."..." end
+        return string.format("%q", v)
+    elseif t == "number" or t == "boolean" then
+        return tostring(v)
+    elseif t == "Instance" then
+        return v:GetFullName()
+    elseif t == "Vector3" then
+        return string.format("V3(%.0f,%.0f,%.0f)", v.X, v.Y, v.Z)
+    elseif t == "table" then
+        local p = {}
+        for k, val in pairs(v) do
+            p[#p+1] = "["..serialize(k,depth+1).."]="..serialize(val,depth+1)
+        end
+        return "{"..table.concat(p,",").."}"
+    end
+    return "<"..t..">"
+end
+
+local function argsToString(args)
+    local p = {}
+    for i = 1, #args do p[i] = serialize(args[i]) end
+    return table.concat(p, ", ")
+end
+
+local function addLog(method, path, args)
+    logCount += 1
+    local entry = Instance.new("TextButton")
+    entry.Size = UDim2.new(1, 0, 0, 20)
+    entry.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+    entry.BorderSizePixel = 0
+    entry.Text = "  [" .. method .. "] " .. path .. "(" .. argsToString(args) .. ")"
+    entry.TextColor3 = Color3.fromRGB(200, 200, 220)
+    entry.Font = Enum.Font.Code
+    entry.TextSize = 11
+    entry.TextXAlignment = Enum.TextXAlignment.Left
+    entry.TextTruncate = Enum.TextTruncate.AtEnd
+    entry.LayoutOrder = logCount
+    entry.Parent = logScroll
+    Instance.new("UICorner", entry).CornerRadius = UDim.new(0, 3)
+
+    entry.MouseButton1Click:Connect(function()
+        local script = "-- RemoteSpy\nlocal remote = ...\nremote:" .. method .. "(" .. argsToString(args) .. ")"
+        if copy(script) then
+            notify("Script copié !")
+        end
+    end)
+
+    task.defer(function()
+        logScroll.CanvasPosition = Vector2.new(0, logScroll.AbsoluteCanvasSize.Y)
+    end)
+end
+
+wBtn(SpyPage, "Vider les logs", function()
+    logCount = 0
+    for _, c in ipairs(logScroll:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+    spyStatus.Text = "Logs vidés"
+end)
+
+wBtn(SpyPage, "Lister tous les remotes (console)", function()
+    local remotes = {}
+    for _, d in ipairs(game:GetDescendants()) do
+        if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+            table.insert(remotes, d.ClassName .. " : " .. d:GetFullName())
+        end
+    end
+    print("=== " .. #remotes .. " remotes ===")
+    for _, line in ipairs(remotes) do print(line) end
+    spyStatus.Text = #remotes .. " remotes (voir console)"
+    spyStatus.TextColor3 = Color3.fromRGB(150, 200, 150)
+end)
+
+local hooked = false
+if type(hookmetamethod) == "function" and type(getnamecallmethod) == "function" then
+    local ok, err = pcall(function()
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            if method == "FireServer" or method == "InvokeServer" then
+                if typeof(self) == "Instance"
+                and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")) then
+                    local args = {...}
+                    pcall(addLog, method, self:GetFullName(), args)
+                end
+            end
+            return oldNamecall(self, ...)
+        end)
+    end)
+    if ok then
+        hooked = true
+        spyStatus.Text = "✅ Hook actif — FireServer / InvokeServer"
+        spyStatus.TextColor3 = Color3.fromRGB(150, 255, 150)
+    else
+        warn("[Spy] Hook échoué : " .. tostring(err))
+        spyStatus.Text = "⚠ Hook échoué"
+        spyStatus.TextColor3 = Color3.fromRGB(255, 180, 100)
+    end
+end
+
+local attached = {}
+local function attachRemote(re)
+    if attached[re] then return end
+    attached[re] = true
+    re.OnClientEvent:Connect(function(...)
+        pcall(addLog, "OnClientEvent", re:GetFullName(), {...})
+    end)
+end
+for _, d in ipairs(game:GetDescendants()) do
+    if d:IsA("RemoteEvent") then attachRemote(d) end
+end
+game.DescendantAdded:Connect(function(d)
+    if d:IsA("RemoteEvent") then
+        task.wait(0.1)
+        attachRemote(d)
+    end
+end)
+
+if not hooked then
+    spyStatus.Text = "⚠ Mode dégradé : OnClientEvent seulement"
+    spyStatus.TextColor3 = Color3.fromRGB(255, 200, 100)
+end
+print("[Ultimate] Page Spy OK")
+
+--========================= PAGE SCANNER =========================--
+local ScanPage = makePage("Scanner")
+wLabel(ScanPage, "── Instance Scanner ──")
+
+local propsShown = {
+    Part = "Transparency", Decal = "Texture", Sound = "SoundId",
+    Tool = "ToolTip", Animation = "AnimationId",
+    Humanoid = "DisplayName", Model = "Parent",
+    MeshPart = "MeshId", Texture = "Texture",
+}
+
+local scanInput = wInput(ScanPage, "Classe ou nom", "Part, Model, Sword...", nil)
+scanInput.Text = "Part"
+
+wBtn(ScanPage, "Scan par classe (console)", function()
+    local cls = scanInput.Text
+    if cls == "" then return end
+    local t0 = os.clock()
+    local found = 0
+    for _, d in ipairs(game:GetDescendants()) do
+        if d.ClassName == cls then
+            found += 1
+            local extra = ""
+            local prop = propsShown[cls]
+            if prop then
+                local ok, v = pcall(function() return d[prop] end)
+                if ok and v then extra = " | " .. prop .. " = " .. tostring(v):sub(1,100) end
+            end
+            print(string.format("[%d] %s%s", found, d:GetFullName(), extra))
+        end
+    end
+    local dt = os.clock() - t0
+    print(string.format("=== %d '%s' trouvés en %.3fs ===", found, cls, dt))
+    notify(string.format("%d %s trouvés", found, cls))
+end)
+
+wBtn(ScanPage, "Chercher par nom (console)", function()
+    local name = scanInput.Text
+    if name == "" then return end
+    local found = 0
+    for _, d in ipairs(game:GetDescendants()) do
+        if d.Name:lower():find(name:lower(), 1, true) then
+            found += 1
+            print(string.format("[%d] %s (%s)", found, d:GetFullName(), d.ClassName))
+        end
+    end
+    print("=== " .. found .. " résultats ===")
+    notify(found .. " résultats")
+end)
+
+wBtn(ScanPage, "Lister tous les scripts (console)", function()
+    local count = 0
+    for _, d in ipairs(game:GetDescendants()) do
+        if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("ModuleScript") then
+            count += 1
+            print(string.format("[%d] %s (%s)", count, d:GetFullName(), d.ClassName))
+        end
+    end
+    print("=== " .. count .. " scripts ===")
+    notify(count .. " scripts")
+end)
+print("[Ultimate] Page Scanner OK")
+
+--========================= PAGE JOUEURS =========================--
+local PlayersPage = makePage("Joueurs")
+wLabel(PlayersPage, "── Joueurs ──")
+
+local playerListHolder = Instance.new("Frame")
+playerListHolder.Size = UDim2.new(0.95, 0, 0, 200)
+playerListHolder.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+playerListHolder.BorderSizePixel = 0
+playerListHolder.LayoutOrder = nextOrder(PlayersPage)
+playerListHolder.Parent = PlayersPage
+Instance.new("UICorner", playerListHolder).CornerRadius = UDim.new(0, 6)
+
+local playerScroll = Instance.new("ScrollingFrame")
+playerScroll.Size = UDim2.new(1, -8, 1, -8)
+playerScroll.Position = UDim2.new(0, 4, 0, 4)
+playerScroll.BackgroundTransparency = 1
+playerScroll.BorderSizePixel = 0
+playerScroll.ScrollBarThickness = 5
+playerScroll.ScrollBarImageColor3 = Color3.fromRGB(120, 80, 220)
+playerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+playerScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+playerScroll.Parent = playerListHolder
+
+local plList = Instance.new("UIListLayout")
+plList.Padding = UDim.new(0, 2)
+plList.Parent = playerScroll
+
+local function refreshPlayers()
+    for _, c in ipairs(playerScroll:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1, 0, 0, 24)
+        b.BackgroundColor3 = Color3.fromRGB(30, 28, 42)
+        b.Text = "  " .. plr.Name .. " (Team: " .. (plr.Team and plr.Team.Name or "Aucune") .. ")"
+        b.TextColor3 = Color3.fromRGB(220, 215, 240)
+        b.Font = Enum.Font.GothamMedium
+        b.TextSize = 12
+        b.TextXAlignment = Enum.TextXAlignment.Left
+        b.Parent = playerScroll
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+
+        b.MouseButton1Click:Connect(function()
+            local targetHrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+            if targetHrp and hrp then
+                hrp.CFrame = targetHrp.CFrame
+                notify("Téléporté vers " .. plr.Name)
+            else
+                notify("Impossible (pas de personnage)")
+            end
+        end)
+    end
+end
+
+refreshPlayers()
+Players.PlayerAdded:Connect(refreshPlayers)
+Players.PlayerRemoving:Connect(refreshPlayers)
+wBtn(PlayersPage, "Rafraîchir la liste", refreshPlayers)
+print("[Ultimate] Page Joueurs OK")
+
+--========================= PAGE ANALYZER =========================--
+local AnalyzerPage = makePage("Analyzer")
+wLabel(AnalyzerPage, "🤖 Analyseur automatique")
+
+local reportHolder = Instance.new("Frame")
+reportHolder.Size = UDim2.new(0.95, 0, 0, 280)
+reportHolder.BackgroundColor3 = Color3.fromRGB(12, 12, 20)
+reportHolder.BorderSizePixel = 0
+reportHolder.LayoutOrder = nextOrder(AnalyzerPage)
+reportHolder.Parent = AnalyzerPage
+Instance.new("UICorner", reportHolder).CornerRadius = UDim.new(0, 6)
+
+local reportScroll = Instance.new("ScrollingFrame")
+reportScroll.Size = UDim2.new(1, -8, 1, -8)
+reportScroll.Position = UDim2.new(0, 4, 0, 4)
+reportScroll.BackgroundTransparency = 1
+reportScroll.BorderSizePixel = 0
+reportScroll.ScrollBarThickness = 5
+reportScroll.ScrollBarImageColor3 = Color3.fromRGB(120, 80, 220)
+reportScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+reportScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+reportScroll.Parent = reportHolder
+
+local reportList = Instance.new("UIListLayout")
+reportList.Padding = UDim.new(0, 2)
+reportList.Parent = reportScroll
+
+local reportCount = 0
+
+local function addReport(text, color, level)
+    reportCount += 1
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 20)
+    lbl.BackgroundColor3 = (level == "header")
+        and Color3.fromRGB(40, 32, 60)
+        or Color3.fromRGB(20, 20, 28)
+    lbl.BorderSizePixel = 0
+    lbl.Text = "  " .. text
+    lbl.TextColor3 = color or Color3.fromRGB(200, 200, 220)
+    lbl.Font = (level == "header") and Enum.Font.GothamBold or Enum.Font.Code
+    lbl.TextSize = (level == "header") and 13 or 12
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextTruncate = Enum.TextTruncate.AtEnd
+    lbl.LayoutOrder = reportCount
+    lbl.Parent = reportScroll
+    Instance.new("UICorner", lbl).CornerRadius = UDim.new(0, 3)
+    task.defer(function()
+        reportScroll.CanvasPosition = Vector2.new(0, reportScroll.AbsoluteCanvasSize.Y)
+    end)
+    return lbl
+end
+
+local function clearReport()
+    reportCount = 0
+    for _, c in ipairs(reportScroll:GetChildren()) do
+        if c:IsA("TextLabel") then c:Destroy() end
+    end
+end
+
+local CATEGORIES = {
+    { nom = "💰 Monnaie",       color = Color3.fromRGB(255, 220, 100),
+      keys = {"coin","cash","gold","gem","money","point","credit","token","diamond","buck","bux"} },
+    { nom = "🚪 Portes",        color = Color3.fromRGB(200, 150, 255),
+      keys = {"door","gate","barrier","lock","key","entrance","exit","portal"} },
+    { nom = "🎯 Objectifs",     color = Color3.fromRGB(120, 255, 180),
+      keys = {"checkpoint","goal","finish","objective","quest","mission","stage","level","win"} },
+    { nom = "🧑 PNJ / Ennemis", color = Color3.fromRGB(255, 130, 130),
+      keys = {"npc","enemy","boss","mob","monster","guard","soldier","zombie"} },
+    { nom = "🎁 Items / Outils", color = Color3.fromRGB(150, 200, 255),
+      keys = {"tool","weapon","sword","gun","pickup","item","backpack","inventory"} },
+    { nom = "📡 Remotes",       color = Color3.fromRGB(255, 180, 100),
+      keys = {"remote","event","function","fire","invoke"} },
+    { nom = "📜 Scripts",       color = Color3.fromRGB(180, 255, 200),
+      keys = {"script","module","handler","manager","controller"} },
+    { nom = "🛡 Anti-cheat",    color = Color3.fromRGB(255, 100, 100),
+      keys = {"detect","guard","ban","kick","protect","anticheat","cheat","security"} },
+    { nom = "💾 DataStores",    color = Color3.fromRGB(140, 220, 255),
+      keys = {"save","load","data","store","profile","database","persist"} },
+    { nom = "🏆 Récompenses",   color = Color3.fromRGB(255, 240, 120),
+      keys = {"reward","prize","loot","drop","gift","bonus","chest","crate"} },
+}
+
+local function matchesCategory(name, category)
+    local lower = name:lower()
+    for _, kw in ipairs(category.keys) do
+        if lower:find(kw, 1, true) then return true end
+    end
+    return false
+end
+
+local function runAnalysis()
+    clearReport()
+    addReport("🤖 Analyse en cours...", Color3.fromRGB(180, 160, 255), "header")
+    task.wait(0.1)
+
+    local t0 = os.clock()
+    local total = 0
+    local stats = {}
+    local found = {}
+
+    for _, cat in ipairs(CATEGORIES) do
+        found[cat.nom] = {}
+    end
+
+    for _, d in ipairs(game:GetDescendants()) do
+        total += 1
+        stats[d.ClassName] = (stats[d.ClassName] or 0) + 1
+        for _, cat in ipairs(CATEGORIES) do
+            if matchesCategory(d.Name, cat) then
+                if #found[cat.nom] < 30 then
+                    table.insert(found[cat.nom], {
+                        path = d:GetFullName(),
+                        class = d.ClassName,
+                    })
+                end
+                break
+            end
+        end
+    end
+
+    local dt = os.clock() - t0
+    addReport(string.format("✅ Scan : %d instances en %.2fs", total, dt),
+        Color3.fromRGB(150, 255, 150), "header")
+    addReport("")
+
+    for _, cat in ipairs(CATEGORIES) do
+        local list = found[cat.nom]
+        if #list > 0 then
+            addReport(string.format("%s — %d trouvés", cat.nom, #list), cat.color, "header")
+            for i = 1, math.min(#list, 10) do
+                addReport(string.format("  %s (%s)", list[i].path, list[i].class),
+                    Color3.fromRGB(200, 200, 220))
+            end
+            if #list > 10 then
+                addReport(string.format("  ... et %d autres (console)", #list - 10),
+                    Color3.fromRGB(160, 160, 180))
+                for i = 11, #list do
+                    print("[" .. cat.nom .. "] " .. list[i].path)
+                end
+            end
+            addReport("")
+        end
+    end
+
+    local remoteCount = 0
+    for _, d in ipairs(game:GetDescendants()) do
+        if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+            remoteCount += 1
+        end
+    end
+    addReport(string.format("📡 Total remotes : %d", remoteCount),
+        Color3.fromRGB(255, 220, 100), "header")
+    addReport("")
+
+    addReport("📊 Top classes", Color3.fromRGB(140, 200, 255), "header")
+    local sorted = {}
+    for k, v in pairs(stats) do table.insert(sorted, {k, v}) end
+    table.sort(sorted, function(a, b) return a[2] > b[2] end)
+    for i = 1, math.min(10, #sorted) do
+        addReport(string.format("  %-25s : %d", sorted[i][1], sorted[i][2]),
+            Color3.fromRGB(200, 220, 255))
+    end
+    addReport("")
+
+    addReport("💡 Suggestions", Color3.fromRGB(200, 160, 255), "header")
+    if #found["💰 Monnaie"] > 0 then
+        addReport("  • Monnaie → regarde Remote Spy", Color3.fromRGB(255, 230, 150))
+    end
+    if #found["🛡 Anti-cheat"] > 0 then
+        addReport("  • Anti-cheat détecté → prudence !", Color3.fromRGB(255, 150, 150))
+    end
+    if remoteCount > 0 then
+        addReport("  • Remotes → onglet Spy", Color3.fromRGB(255, 210, 150))
+    end
+
+    addReport("")
+    addReport("✅ Analyse terminée.", Color3.fromRGB(150, 255, 150), "header")
+    notify("Analyse terminée !")
+end
+
+wBtn(AnalyzerPage, "🤖 Lancer l'analyse complète", runAnalysis)
+wBtn(AnalyzerPage, "🧹 Effacer le rapport", clearReport)
+wBtn(AnalyzerPage, "📋 Copier le rapport", function()
+    local lines = {}
+    for _, c in ipairs(reportScroll:GetChildren()) do
+        if c:IsA("TextLabel") then
+            table.insert(lines, c.Text:gsub("^%s+", ""))
+        end
+    end
+    if copy(table.concat(lines, "\n")) then
+        notify("Rapport copié ✅")
+    end
+end)
+
+wBtn(AnalyzerPage, "🛡 Anti-cheats uniquement", function()
+    clearReport()
+    addReport("🛡 Anti-cheat :", Color3.fromRGB(255, 100, 100), "header")
+    local c = 0
+    for _, d in ipairs(game:GetDescendants()) do
+        if matchesCategory(d.Name, CATEGORIES[8]) then
+            c += 1
+            addReport("  ⚠ " .. d:GetFullName(), Color3.fromRGB(255, 150, 150))
+            print("[AC] " .. d:GetFullName())
+        end
+    end
+    if c == 0 then addReport("  Aucun ✅", Color3.fromRGB(150, 255, 150)) end
+end)
+print("[Ultimate] Page Analyzer OK")
+
+--========================= PAGE INFOS =========================--
+local InfoPage = makePage("Infos")
+wLabel(InfoPage, "── Infos ──")
+wBtn(InfoPage, "Afficher les infos (console)", function()
+    print("=== Ultimate Infos ===")
+    print("Exécuteur :", (type(identifyexecutor)=="function" and identifyexecutor()) or "?")
+    print("Plateforme :", UIS:GetPlatform().Name)
+    print("PlaceId :", game.PlaceId)
+    print("JobId :", game.JobId)
+    print("FPS :", workspace:GetRealPhysicsFPS())
+    print("Hook Spy :", hooked and "Actif" or "Dégradé")
+    notify("Infos en console")
+end)
+wBtn(InfoPage, "Ouvrir DevConsole", function()
+    pcall(function() StarterGui:SetCore("DevConsoleVisible", true) end)
+end)
+print("[Ultimate] Page Infos OK")
+
+--========================= CRÉER LES ONGLETS =========================--
+-- IMPORTANT : créer les onglets APRÈS avoir créé toutes les pages
+makeTabBtn("Tools")
+makeTabBtn("Dex")
+makeTabBtn("Spy")
+makeTabBtn("Scanner")
+makeTabBtn("Joueurs")
+makeTabBtn("Analyzer")
+makeTabBtn("Infos")
+Tools.Visible = true
+print("[Ultimate] Onglets créés")
+
+--========================= DRAG =========================--
+local dragging, dragStart, startPos
+titleBar.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = i.Position
+        startPos = frame.Position
+    end
+end)
+UIS.InputChanged:Connect(function(i)
+    if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement
+    or i.UserInputType == Enum.UserInputType.Touch) then
+        local d = i.Position - dragStart
+        frame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + d.X,
+            startPos.Y.Scale, startPos.Y.Offset + d.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+notify("Ultimate chargé ✅")
+print("[Ultimate] ✅ FINI")
